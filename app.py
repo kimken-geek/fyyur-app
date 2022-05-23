@@ -11,6 +11,7 @@ from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
 import logging
 from logging import Formatter, FileHandler
+from sqlalchemy.exc import SQLAlchemyError
 from flask_wtf import Form
 from forms import *
 from models import Venue, Show, Artist 
@@ -165,46 +166,58 @@ def create_venue_form():
 def create_venue_submission():
   # TODO: insert form data as a new Venue record in the db, instead
   # TODO: modify data to be the data object returned from db insertion
-  try:
-        name = request.form.get("name")
-        city = request.form.get("city")
-        state = request.form.get("state")
-        address = request.form.get("address")
-        phone = request.form.get("phone")
-        genres = request.form.getlist("genres")
-        facebook_link = request.form.get("facebook_link")
-        website=request.form["website"],
-        seeking_talent=json.loads(request.form["seeking_talent"].lower()),
-        seeking_description=request.form["seeking_description"]
+    area = Venue.query.filter(Venue.city == request.form['city']).filter(Venue.state == request.form['state']).first()
+    stored = True
 
-        new_venue = Venue(
-            name=name,
-            city=city,
-            state=state,
-            address=address,
-            phone=phone,
-            facebook_link=facebook_link,
-            website = website,
-            seeking_talent=seeking_talent,
-            seeking_description =seeking_description
+    if not area:
+        area = Venue(
+            city=request.form['city'],
+            state=request.form['state']
         )
-        db.session.add(new_venue)
-        db.session.commit()
 
-        db.session.refresh(new_venue)
+        try:
+            db.session.add(area)
+            db.session.flush()
+        except SQLAlchemyError as e:
+            print(e.__traceback__)
+            db.session.rollback()
+            stored = False
+        finally:
+            db.session.close()
+
+    if stored:
+        venue = Venue(
+            name=request.form['name'],
+            city=request.form['city'],
+            state=request.form['state'],
+            address=request.form['address'],
+            phone=request.form['phone'],
+            image_link=request.form['image_link'],
+            facebook_link=request.form['facebook_link'],
+
+            
+        )
+
+        try:
+            db.session.add(venue)
+            db.session.commit()
+        except SQLAlchemyError as e:
+            print(e.__traceback__)
+            db.session.rollback()
+            stored = False
+        finally:
+            db.session.close()
+
+    # on successful db insert, flash success
+    # TODO: on unsuccessful db insert, flash an error instead -completed
+    # e.g., flash('An error occurred. Venue ' + data.name + ' could not be listed.')
+    # see: http://flask.pocoo.org/docs/1.0/patterns/flashing/
+    if stored:
         flash('Venue ' + request.form['name'] + ' was successfully listed!')
-  except:
-        db.session.rollback()
-        print(sys.exc_info())
-        flash(
-            "An error occurred. Venue "
-            + request.form.get("name")
-            + " could not be listed."
-        )
+    else:
+        flash('An error occurred. Venue ' + request.form['name'] + 'could not be listed.')
 
-  finally:
-        db.session.close()
-        return render_template("pages/home.html")
+    return render_template('pages/home.html')
 
   
 
